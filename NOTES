@@ -1,0 +1,128 @@
+
+
+
+I want to kick out a redesign of jsworld, given all the feedback I've
+been getting so far about the limitations of jsworld.
+
+I really want to shift away from manually constructing DOM trees in
+Moby: it's the wrong thing to do.  Rather, I want the following.
+Assume that we have types for 'dom' and 'css', representing dom trees
+and css stylesheets.  Then we need constructors,
+
+    open-dom: url -> dom
+    Constructs a dom from a URL reference.
+
+    open-css: url -> css
+    Constructs a css from a URL reference.
+
+Given dom trees, we provide functions for updating them functionally:
+
+    dom-replace: dom id dom -> dom
+    Replace a sub-dom within the dom.
+
+    dom-add-child: dom dom -> dom
+    Add a sub-dom child to the dom.
+
+    dom-remove: dom id -> dom
+    Remove an element from the dom.
+
+    dom-find: dom id -> dom
+    Find a sub-dom within a dom.
+
+
+We also provide functions to attach world-updaters to input fields and
+the other UI elements.  For example:
+
+    dom-attach-button-update: dom button-field-id (world -> world) -> dom
+    Updates the button element within the dom by attaching the
+world-updater to it.
+
+    dom-attach-text-update: dom text-field-id (world string -> world) -> dom
+    Similarly attach a callback to the text field with the given text-field-id.
+
+    dom-attach-select-update: dom select-field-id (world string -> world) -> dom
+
+And so on for the other form element types.
+
+
+js-big-bang should NOT take in a function that generates new dom
+trees: rather, it should consume an initial dom and initial css (both
+with reasonable defaults), as well as a on-dom-update and
+on-css-update:
+
+
+   initial-dom: dom
+   initial-css: css
+
+   on-dom-update: (world dom -> dom)
+   on-css-update: (world css -> css)
+
+
+
+Advantages:
+
+1.  This approach does a better job of separating of the controller
+from the view; in the old design, the definition of the on-draw
+view-generating function was polluted with explicit references to the
+callbacks.
+
+2.  This lets us get completely around the tree-diffing problem we
+were hitting.  Since all manipulations to the dom are through the
+dom-updaters, we can keep track of the intent of each update, and use
+real mutation when applying the dom-update.
+
+3.  One issue with the current design is that the user has no natural
+way to get at the internal state of the dom tree.  Worse, the use of
+on-draw doesn't discourage people from accidentally generating fresh
+dom trees.  This approach actively encourages updating rather than
+constructing DOMs, and allowing users to introspect the current value
+of the dom.
+
+
+
+
+----------------------------------------------------------------------
+
+
+From: Danny Yoo <dyoo@cs.wpi.edu>
+To: Emmanuel Schanzer <schanzer@bootstrapworld.org>
+Cc: Shriram Krishnamurthi <sk@cs.brown.edu>, Matthias Felleisen <matthias@ccs.neu.edu>
+Content-Type: text/plain; charset=UTF-8
+
+> Also - was there any progress made around scaling the canvas based on the available screen size? I remember you saying that you and Matthias were working on that...
+
+Followup to this before it slips: I thought of a better approach to
+this.  As we discussed earlier, the new design for doing html/css with
+jsworld says that the user provides a drawing function that consumes,
+not only the world, but the state of the current dom tree:
+
+    ;; on-draw: world dom -> dom
+    (define (on-draw world current-dom)
+       ...)
+
+where we provide functional updaters to let the user update the
+content of the current-dom.  But since old-dom reflects the state of
+the window, users should be able to grab the size of the window: it
+should be a matter of selecting the canvas element in current-dom, and
+querying for its width and height attributes.
+
+
+This solution can generalize to traditional world-style programs, the
+ones that deal only with a canvas.  For regular world/universe
+programs, I want to take a similar approach to the one above: the
+drawing function may consume, not only the current state of the world,
+but the current scene being displayed.  On the very first call that
+world/universe makes to on-draw, it can can pass in an empty-scene
+with dimensions the size of the native display.
+
+That additional second input will not only lets the user query for
+screen dimensions, but provide some opportunities for optimization.
+If the user does something like this:
+
+    (define (on-draw world current-scene)
+       (place-image ... ... ... current-scene))
+
+that is, if they produce a new scene that reuses the old scene in some
+way, we may be able to use that knowledge to optimize the redrawing.
+By having on-draw consume the current-scene, we have the opportunity
+to express graphical sprites.
